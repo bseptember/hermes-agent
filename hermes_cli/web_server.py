@@ -4572,6 +4572,30 @@ def _apply_model_assignment_sync(
         if not provider or not model:
             raise HTTPException(status_code=400, detail="provider and model required for main")
         provider, model = _normalize_main_model_assignment(provider, model)
+        # Policy gate: if a provider key is absent, only free models are allowed.
+        try:
+            from hermes_cli.auth import (
+                PROVIDER_REGISTRY,
+                _resolve_api_key_provider_secret,
+                has_usable_secret,
+            )
+            from hermes_cli.model_access_policy import enforce_paid_model_requires_key
+
+            pslug = provider.strip().lower()
+            pconfig = PROVIDER_REGISTRY.get(pslug)
+            explicit_has_key = has_usable_secret(api_key)
+            resolved_has_key = False
+            if pconfig is not None:
+                token, _source = _resolve_api_key_provider_secret(pslug, pconfig)
+                resolved_has_key = has_usable_secret(token)
+            enforce_paid_model_requires_key(
+                provider=pslug,
+                model=model,
+                api_key_present=bool(explicit_has_key or resolved_has_key),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         model_cfg = _apply_main_model_assignment(
             cfg.get("model", {}), provider, model, base_url, api_key
         )
@@ -5042,7 +5066,14 @@ async def get_env_vars(profile: Optional[str] = None):
 async def set_env_var(body: EnvVarUpdate, profile: Optional[str] = None):
     try:
         with _profile_scope(body.profile or profile):
-            save_env_value(body.key, body.value)
+            key = (body.key or "").strip()
+            value = (body.value or "")
+            # Keys/Providers UX: blank API-key input means "remove my override".
+            # Persisting KEY= (empty) shadows inherited VM/container defaults.
+            if key.endswith("_API_KEY") and not value.strip():
+                remove_env_value(key)
+            else:
+                save_env_value(key, value)
         return {"ok": True, "key": body.key}
     except ValueError as exc:
         # save_env_value raises ValueError for invalid names and for keys

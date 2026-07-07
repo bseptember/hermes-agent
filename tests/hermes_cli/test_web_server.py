@@ -173,6 +173,21 @@ class TestReloadEnv:
             assert known_key not in os.environ
             assert count >= 1
 
+    def test_restores_inherited_value_when_key_removed_from_dotenv(self, tmp_path):
+        """reload_env() restores inherited defaults when .env override disappears."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("")
+        known_key = "OPENROUTER_API_KEY"
+        with patch.dict(reload_env.__globals__, {"get_env_path": lambda: env_file}):
+            from hermes_cli import env_loader
+
+            env_loader._INHERITED_ENV_SNAPSHOT[known_key] = "vm-default-openrouter"
+            os.environ[known_key] = "user-override"
+            count = reload_env()
+            assert os.environ.get(known_key) == "vm-default-openrouter"
+            assert count >= 1
+            env_loader._INHERITED_ENV_SNAPSHOT.pop(known_key, None)
+
     def test_does_not_remove_unknown_vars(self, tmp_path):
         """reload_env() preserves non-Hermes env vars even when absent from .env."""
         env_file = tmp_path / ".env"
@@ -1429,6 +1444,17 @@ class TestWebServerEndpoints:
         # Should contain known env var names
         assert any(k.endswith("_API_KEY") or k.endswith("_TOKEN") for k in data.keys())
 
+    def test_put_env_blank_api_key_removes_override_instead_of_persisting_empty(self):
+        from hermes_cli.config import get_env_path, load_env
+
+        self.client.put("/api/env", json={"key": "OPENROUTER_API_KEY", "value": "sk-user"})
+        self.client.put("/api/env", json={"key": "OPENROUTER_API_KEY", "value": "   "})
+
+        env_on_disk = load_env()
+        assert env_on_disk.get("OPENROUTER_API_KEY") is None
+        text = get_env_path().read_text(encoding="utf-8")
+        assert "OPENROUTER_API_KEY=" not in text
+
     def test_get_env_vars_marks_channel_managed_keys(self):
         from hermes_cli.web_server import _channel_managed_env_keys
 
@@ -1544,6 +1570,48 @@ class TestWebServerEndpoints:
 
         assert confirmed.status_code == 200
         assert confirmed.json()["ok"] is True
+
+    def test_model_set_blocks_paid_model_without_provider_key(self, monkeypatch):
+        monkeypatch.setattr(
+            "hermes_cli.model_cost_guard.expensive_model_warning",
+            lambda *_args, **_kwargs: None,
+        )
+        monkeypatch.setattr(
+            "hermes_cli.auth._resolve_api_key_provider_secret",
+            lambda *_args, **_kwargs: ("", ""),
+        )
+
+        resp = self.client.post(
+            "/api/model/set",
+            json={
+                "scope": "main",
+                "provider": "openrouter",
+                "model": "openai/gpt-5",
+            },
+        )
+        assert resp.status_code == 400
+        assert "requires an API key" in resp.json()["detail"]
+
+    def test_model_set_allows_free_model_without_provider_key(self, monkeypatch):
+        monkeypatch.setattr(
+            "hermes_cli.model_cost_guard.expensive_model_warning",
+            lambda *_args, **_kwargs: None,
+        )
+        monkeypatch.setattr(
+            "hermes_cli.auth._resolve_api_key_provider_secret",
+            lambda *_args, **_kwargs: ("", ""),
+        )
+
+        resp = self.client.post(
+            "/api/model/set",
+            json={
+                "scope": "main",
+                "provider": "openrouter",
+                "model": "nvidia/nemotron-3-super-120b-a12b:free",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
 
     def test_model_set_normalizes_vendor_slug_for_native_provider(self, monkeypatch):
         """'Use as → Main' with an OpenRouter slug + native provider must not

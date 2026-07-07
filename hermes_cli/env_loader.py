@@ -38,6 +38,12 @@ _SECRET_SOURCES: dict[str, str] = {}
 # config re-parse, and the ASCII sanitization sweep still ran every time.
 _APPLIED_HOMES: set[str] = set()
 
+# Process-start environment snapshot, captured before Hermes loads user/project
+# dotenv files. Used as the fallback source when a user removes a .env override:
+# we can restore inherited VM/container secrets instead of leaving the process
+# with an empty/unset value.
+_INHERITED_ENV_SNAPSHOT: dict[str, str] = dict(os.environ)
+
 
 def get_secret_source(env_var: str) -> str | None:
     """Return the label of the secret source that supplied ``env_var``, if any.
@@ -82,6 +88,15 @@ def format_secret_source_suffix(env_var: str) -> str:
     # (e.g. 1Password, HashiCorp Vault) without having to update every
     # call site.
     return f" (from {source})"
+
+
+def get_inherited_env_value(env_var: str) -> str | None:
+    """Return the process-inherited value for ``env_var`` before dotenv loads.
+
+    This is intentionally immutable for the process lifetime so runtime writes
+    to ``os.environ`` never mutate the fallback baseline.
+    """
+    return _INHERITED_ENV_SNAPSHOT.get(env_var)
 
 
 def _format_offending_chars(value: str, limit: int = 3) -> str:

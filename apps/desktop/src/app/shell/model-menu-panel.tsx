@@ -247,6 +247,8 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
                 // Capabilities are looked up against the active/base id; the
                 // -fast variant carries the same param support as its base.
                 const caps = group.provider.capabilities?.[family.id]
+                const unavailable = new Set(group.provider.unavailable_models ?? [])
+                const locked = unavailable.has(family.id)
 
                 // Effective settings for this row: live session state when it's
                 // the active model, otherwise its remembered preset (Hermes
@@ -279,6 +281,9 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
                 // edit submenu (reasoning/fast) is reached by HOVER, so you can
                 // still tweak those without the click dismissing everything.
                 const activate = () => {
+                  if (locked) {
+                    return
+                  }
                   if (!isCurrent) {
                     void selectFamily(family, group.provider)
                   }
@@ -289,7 +294,8 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
                 return (
                   <DropdownMenuSub key={`${group.provider.slug}:${family.id}`}>
                     <DropdownMenuSubTrigger
-                      className={dropdownMenuRow}
+                      className={cn(dropdownMenuRow, locked && 'cursor-not-allowed opacity-45')}
+                      disabled={locked}
                       hideChevron
                       onClick={activate}
                       onKeyDown={event => {
