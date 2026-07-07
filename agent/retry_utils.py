@@ -24,6 +24,11 @@ _jitter_lock = threading.Lock()
 # not sit silent for 20+ minutes.
 _ZAI_CODING_OVERLOAD_LONG_BACKOFF = (30.0, 60.0, 90.0, 120.0)
 
+# Model-level cooldown registry. Keys are provider/base/model tuples so
+# concurrent sessions stop re-hammering the same throttled upstream model.
+_model_cooldowns: dict[tuple[str, str, str], float] = {}
+_model_cooldowns_lock = threading.Lock()
+
 
 def jittered_backoff(
     attempt: int,
@@ -127,3 +132,52 @@ def adaptive_rate_limit_backoff(
     # A smaller jitter ratio keeps long waits readable while still avoiding
     # synchronized retry storms across concurrent Hermes sessions.
     return jittered_backoff(1, base_delay=base_delay, max_delay=base_delay, jitter_ratio=0.2), "zai_coding_overload_long"
+
+
+def _cooldown_key(*, provider: str | None, base_url: str | None, model: str | None) -> tuple[str, str, str]:
+    return (
+        (provider or "").strip().lower(),
+        (base_url or "").strip().lower(),
+        (model or "").strip().lower(),
+    )
+
+
+def model_cooldown_remaining(*, provider: str | None, base_url: str | None, model: str | None, now: float | None = None) -> float:
+    """Return remaining cooldown seconds for a model/provider route.
+
+    Expired entries are cleaned up opportunistically.
+    """
+    key = _cooldown_key(provider=provider, base_url=base_url, model=model)
+    now_ts = time.time() if now is None else float(now)
+    with _model_cooldowns_lock:
+        until = _model_cooldowns.get(key)
+        if until is None:
+            return 0.0
+        remaining = until - now_ts
+        if remaining <= 0:
+            _model_cooldowns.pop(key, None)
+            return 0.0
+        return remaining
+
+
+def register_model_cooldown(
+    *,
+    provider: str | None,
+    base_url: str | None,
+    model: str | None,
+    cooldown_seconds: float,
+    now: float | None = None,
+) -> float:
+    """Record/extend a model cooldown and return the final remaining seconds."""
+    seconds = max(0.0, float(cooldown_seconds))
+    if seconds <= 0:
+        return 0.0
+    key = _cooldown_key(provider=provider, base_url=base_url, model=model)
+    now_ts = time.time() if now is None else float(now)
+    candidate_until = now_ts + seconds
+    with _model_cooldowns_lock:
+        existing_until = _model_cooldowns.get(key, 0.0)
+        # Only extend; don't shorten an already-longer cooldown.
+        final_until = max(existing_until, candidate_until)
+        _model_cooldowns[key] = final_until
+    return max(0.0, final_until - now_ts)

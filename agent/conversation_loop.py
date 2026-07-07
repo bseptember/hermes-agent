@@ -58,7 +58,12 @@ from agent.model_metadata import (
 )
 from agent.process_bootstrap import _install_safe_stdio
 from agent.prompt_caching import apply_anthropic_cache_control
-from agent.retry_utils import adaptive_rate_limit_backoff, jittered_backoff
+from agent.retry_utils import (
+    adaptive_rate_limit_backoff,
+    jittered_backoff,
+    model_cooldown_remaining,
+    register_model_cooldown,
+)
 from agent.trajectory import has_incomplete_scratchpad
 from agent.usage_pricing import estimate_usage_cost, normalize_usage
 from hermes_constants import PARTIAL_STREAM_STUB_ID
@@ -1142,6 +1147,57 @@ def run_conversation(
                     pass
                 except Exception:
                     pass  # Never let rate guard break the agent loop
+
+            # ── Provider/model cooldown guard ─────────────────────
+            # A previous 429 can leave the same model hot for tens of seconds.
+            # Track cooldown per provider/base/model so concurrent sessions
+            # don't all re-hit immediately.
+            _cooldown_left = model_cooldown_remaining(
+                provider=agent.provider,
+                base_url=agent.base_url,
+                model=agent.model,
+            )
+            if _cooldown_left > 0:
+                _cooldown_msg = (
+                    f"Provider cooldown active for {agent.model} — "
+                    f"waiting {_cooldown_left:.1f}s."
+                )
+                agent._buffer_status(f"⏳ {_cooldown_msg}")
+                # Prefer fallback over waiting when available.
+                if agent._try_activate_fallback():
+                    active_system_prompt = _sync_failover_system_message(
+                        agent, api_messages, active_system_prompt
+                    )
+                    retry_count = 0
+                    compression_attempts = 0
+                    _retry.primary_recovery_attempted = False
+                    continue
+                logger.warning(
+                    "Cooldown guard delayed API call by %.2fs %s",
+                    _cooldown_left,
+                    agent._client_log_context(),
+                )
+                _cooldown_end = time.time() + _cooldown_left
+                while time.time() < _cooldown_end:
+                    if agent._interrupt_requested:
+                        agent._vprint(
+                            f"{agent.log_prefix}⚡ Interrupt detected during cooldown wait, aborting.",
+                            force=True,
+                        )
+                        _interrupt_text = (
+                            "Operation interrupted: waiting for provider cooldown to reset."
+                        )
+                        close_interrupted_tool_sequence(messages, _interrupt_text)
+                        agent._persist_session(messages, conversation_history)
+                        agent.clear_interrupt()
+                        return {
+                            "final_response": _interrupt_text,
+                            "messages": messages,
+                            "api_calls": api_call_count,
+                            "completed": False,
+                            "interrupted": True,
+                        }
+                    time.sleep(0.2)
 
             try:
                 agent._reset_stream_delivery_tracking()
@@ -4117,6 +4173,17 @@ def run_conversation(
                         agent._emit_status(_rate_limit_status)
                     else:
                         agent._buffer_status(_rate_limit_status)
+                    _cooldown_remaining = register_model_cooldown(
+                        provider=agent.provider,
+                        base_url=agent.base_url,
+                        model=agent.model,
+                        cooldown_seconds=wait_time,
+                    )
+                    logger.warning(
+                        "Registered model cooldown %.2fs %s",
+                        _cooldown_remaining,
+                        agent._client_log_context(),
+                    )
                 else:
                     agent._buffer_status(f"⏳ Retrying in {wait_time:.1f}s (attempt {retry_count}/{max_retries})...")
                 logger.warning(
