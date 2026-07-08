@@ -227,6 +227,7 @@ def build_models_payload(
         rows = _reorder_canonical(rows)
     if pricing:
         _apply_pricing(rows, force_fresh_nous_tier=force_fresh_nous_tier)
+    _apply_api_key_free_gate(rows)
     if capabilities:
         _apply_capabilities(rows)
 
@@ -447,6 +448,35 @@ def _apply_pricing(
                 # is never blocked from picking a model.
                 row["free_tier"] = False
                 row["unavailable_models"] = []
+
+
+def _apply_api_key_free_gate(rows: list[dict]) -> None:
+    """When provider key is absent, leave only clearly-free models selectable."""
+    from hermes_cli.auth import PROVIDER_REGISTRY, _resolve_api_key_provider_secret
+    from hermes_cli.model_access_policy import looks_like_free_model
+
+    for row in rows:
+        slug = str(row.get("slug", "")).lower()
+        models = list(row.get("models") or [])
+        if not slug or not models:
+            continue
+        cfg = PROVIDER_REGISTRY.get(slug)
+        if cfg is None or cfg.auth_type != "api_key":
+            continue
+
+        secret, _source = _resolve_api_key_provider_secret(slug, cfg)
+        if secret:
+            continue
+
+        priced = row.get("pricing") if isinstance(row.get("pricing"), dict) else {}
+        unavailable = set(str(mid) for mid in (row.get("unavailable_models") or []))
+        for mid in models:
+            price = priced.get(mid) if isinstance(priced, dict) else None
+            is_free = bool(isinstance(price, dict) and price.get("free") is True)
+            if not is_free and not looks_like_free_model(mid):
+                unavailable.add(mid)
+        if unavailable:
+            row["unavailable_models"] = sorted(unavailable)
 
 
 def _moa_provider_row(current_provider: str = "") -> dict | None:

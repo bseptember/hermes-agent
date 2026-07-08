@@ -96,3 +96,18 @@ def test_apply_pricing_failure_is_swallowed(monkeypatch):
     inv._apply_pricing(rows)  # must not raise
 
     assert "pricing" not in rows[0]
+
+
+def test_api_key_free_gate_blocks_paid_when_key_missing(monkeypatch):
+    class _Cfg:
+        auth_type = "api_key"
+        api_key_env_vars = ("OPENROUTER_API_KEY",)
+
+    monkeypatch.setattr(inv, "_apply_pricing", lambda rows, **kwargs: None)
+    monkeypatch.setattr("hermes_cli.auth.PROVIDER_REGISTRY", {"openrouter": _Cfg()})
+    monkeypatch.setattr("hermes_cli.auth._resolve_api_key_provider_secret", lambda slug, cfg: ("", ""))
+
+    rows = [{"slug": "openrouter", "models": ["a/paid", "b/free-chat", "c/model:free"]}]
+    inv._apply_api_key_free_gate(rows)
+
+    assert rows[0]["unavailable_models"] == ["a/paid"]

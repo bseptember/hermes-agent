@@ -99,4 +99,21 @@ describe('ModelMenuPanel MoA presets', () => {
     // row must not be disabled and must still route through onSelectModel.
     expect(onSelectModel).toHaveBeenCalledWith({ model: 'BeastMode', provider: 'moa' })
   })
+
+  it('does not select locked paid models without key', async () => {
+    getGlobalModelOptions.mockResolvedValue({
+      providers: [
+        {
+          slug: 'openrouter',
+          name: 'OpenRouter',
+          models: ['paid-model', 'free-chat'],
+          unavailable_models: ['paid-model']
+        }
+      ]
+    })
+    const onSelectModel = renderPanel()
+    const paid = await findByText(document.body, 'paid-model')
+    fireEvent.click(paid)
+    expect(onSelectModel).not.toHaveBeenCalled()
+  })
 })

@@ -2685,6 +2685,28 @@ def _apply_model_switch(
     if not result.success:
         raise ValueError(result.error_message or "model switch failed")
 
+    # Enforce free-only access when a provider uses API-key auth and no key is
+    # currently available.
+    try:
+        from hermes_cli.auth import has_usable_secret
+        from hermes_cli.model_access_policy import enforce_paid_model_requires_key
+
+        pslug = str(result.target_provider or "").strip().lower()
+        key_present = False
+        if callable(result.api_key) and not isinstance(result.api_key, str):
+            key_present = True
+        else:
+            key_present = has_usable_secret(result.api_key)
+        enforce_paid_model_requires_key(
+            provider=pslug,
+            model=result.new_model,
+            api_key_present=key_present,
+        )
+    except ValueError:
+        raise
+    except Exception:
+        pass
+
     if agent:
         try:
             from hermes_cli.context_switch_guard import merge_preflight_compression_warning
@@ -4339,6 +4361,28 @@ def _make_agent(
             "requested": requested_provider,
             "target_model": model or None,
         })
+
+    # Runtime guard: without an API key, only free-model IDs are executable.
+    try:
+        from hermes_cli.auth import has_usable_secret
+        from hermes_cli.model_access_policy import enforce_paid_model_requires_key
+
+        r_provider = str(runtime.get("provider") or "").strip().lower()
+        r_key = runtime.get("api_key")
+        if callable(r_key) and not isinstance(r_key, str):
+            key_present = True
+        else:
+            key_present = has_usable_secret(r_key)
+        enforce_paid_model_requires_key(
+            provider=r_provider,
+            model=model,
+            api_key_present=key_present,
+        )
+    except ValueError:
+        raise
+    except Exception:
+        pass
+
     _pr = _load_provider_routing()
     return AIAgent(
         model=model,

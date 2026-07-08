@@ -439,8 +439,13 @@ class TestRemoveEnvValue:
         env_path = tmp_path / ".env"
         env_path.write_text("MY_KEY=my_value\n")
         with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path), "MY_KEY": "my_value"}):
+            from hermes_cli import env_loader
+
+            # Simulate a VM/container default inherited before dotenv overrode it.
+            env_loader._INHERITED_ENV_SNAPSHOT["MY_KEY"] = "vm-default"
             remove_env_value("MY_KEY")
-            assert "MY_KEY" not in os.environ
+            assert os.environ.get("MY_KEY") == "vm-default"
+            env_loader._INHERITED_ENV_SNAPSHOT.pop("MY_KEY", None)
 
     def test_returns_false_when_key_not_found(self, tmp_path):
         env_path = tmp_path / ".env"

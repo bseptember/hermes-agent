@@ -7377,7 +7377,20 @@ def remove_env_value(key: str) -> bool:
                 pass
             raise
 
-    os.environ.pop(key, None)
+    # If this key existed in the process environment before Hermes loaded
+    # ~/.hermes/.env, restore that inherited value so removing a user override
+    # falls back to VM/container defaults instead of leaving runtime unconfigured.
+    inherited_value = None
+    try:
+        from hermes_cli.env_loader import get_inherited_env_value
+
+        inherited_value = get_inherited_env_value(key)
+    except Exception:
+        inherited_value = None
+    if inherited_value is None:
+        os.environ.pop(key, None)
+    else:
+        os.environ[key] = inherited_value
     invalidate_env_cache()
     return found
 
@@ -7427,11 +7440,23 @@ def reload_env() -> int:
         if os.environ.get(key) != value:
             os.environ[key] = value
             count += 1
-    # Remove known Hermes vars that are no longer in .env
+    # Remove known Hermes vars that are no longer in .env; if a key was present
+    # in the inherited process environment, restore that baseline value.
+    try:
+        from hermes_cli.env_loader import get_inherited_env_value
+    except Exception:
+        get_inherited_env_value = None  # type: ignore[assignment]
     for key in known_keys:
         if key not in env_vars and key in os.environ:
-            del os.environ[key]
-            count += 1
+            inherited_value = (
+                get_inherited_env_value(key) if get_inherited_env_value else None
+            )
+            if inherited_value is None:
+                del os.environ[key]
+                count += 1
+            elif os.environ.get(key) != inherited_value:
+                os.environ[key] = inherited_value
+                count += 1
     return count
 
 
