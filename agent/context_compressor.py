@@ -1883,6 +1883,17 @@ This compaction should PRIORITISE preserving all information related to the focu
                 "max_tokens": int(summary_budget * 1.3),
                 # timeout resolved from auxiliary.compression.timeout config by call_llm
             }
+            # Pin the summary call to the session so OpenRouter's sticky routing
+            # keeps successive compressions on the same backend. Compression
+            # re-runs as context grows, and each call shares a stable prefix
+            # (fixed summary template + system context), so a pinned backend can
+            # serve automatic prompt-cache hits across compactions. call_llm only
+            # forwards it on routes whose profile emits session_id (OpenRouter),
+            # so non-OpenRouter summary models are unaffected. No-op when the
+            # compressor was never bound to a session (self._session_id == "").
+            _compress_sid = getattr(self, "_session_id", "")
+            if _compress_sid:
+                call_kwargs["session_id"] = _compress_sid
             if self.summary_model:
                 call_kwargs["model"] = self.summary_model
             # Compression is atomic: protect the in-flight summary call from a

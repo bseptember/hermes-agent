@@ -84,6 +84,57 @@ def test_no_focus_topic_no_injection():
     assert "FOCUS TOPIC" not in prompt_text
 
 
+def test_compression_forwards_bound_session_id():
+    """A session-bound compressor pins its summary call to session_id so
+    OpenRouter keeps successive compactions on one backend (prompt-cache hits).
+    """
+    compressor = _make_compressor()
+    compressor._session_id = "compress-session-7"
+    turns = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi"},
+    ]
+
+    captured = {}
+
+    def mock_call_llm(**kwargs):
+        captured.update(kwargs)
+        resp = MagicMock()
+        resp.choices = [MagicMock()]
+        resp.choices[0].message.content = "## Goal\nGreeting."
+        return resp
+
+    with patch("agent.context_compressor.call_llm", mock_call_llm):
+        compressor._generate_summary(turns)
+
+    assert captured.get("session_id") == "compress-session-7"
+
+
+def test_compression_omits_session_id_when_unbound():
+    """An unbound compressor (no session) must not send session_id — keeps the
+    call byte-for-byte identical to pre-fix behavior."""
+    compressor = _make_compressor()
+    compressor._session_id = ""
+    turns = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi"},
+    ]
+
+    captured = {}
+
+    def mock_call_llm(**kwargs):
+        captured.update(kwargs)
+        resp = MagicMock()
+        resp.choices = [MagicMock()]
+        resp.choices[0].message.content = "## Goal\nGreeting."
+        return resp
+
+    with patch("agent.context_compressor.call_llm", mock_call_llm):
+        compressor._generate_summary(turns)
+
+    assert "session_id" not in captured
+
+
 def test_compress_passes_focus_to_generate_summary():
     """compress() passes focus_topic through to _generate_summary."""
     compressor = _make_compressor()
