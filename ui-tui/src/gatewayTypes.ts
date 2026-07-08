@@ -475,6 +475,8 @@ export interface ModelOptionProvider {
   is_current?: boolean
   key_env?: string
   models?: string[]
+  /** Models present but not selectable without an API key (greyed out). */
+  unavailable_models?: string[]
   name: string
   slug: string
   total_models?: number

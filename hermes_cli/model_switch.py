@@ -1351,6 +1351,35 @@ def switch_model(
     # --- Get full model info from models.dev ---
     model_info = get_model_info(target_provider, new_model)
 
+    # --- MoA BYOK gate ---
+    # A preset whose reference/aggregator models are paid can't run without a
+    # usable key for that provider. Refuse the switch with an actionable
+    # message (mirrors the picker grey-out). Fails open on any error.
+    if target_provider == "moa":
+        try:
+            from hermes_cli.config import load_config
+            from hermes_cli.model_access_policy import moa_preset_missing_key
+            from hermes_cli.moa_config import normalize_moa_config
+
+            _moa_cfg = normalize_moa_config(load_config().get("moa") or {})
+            _preset_cfg = _moa_cfg.get("presets", {}).get(new_model)
+            _missing = moa_preset_missing_key(_preset_cfg) if _preset_cfg else None
+        except Exception:
+            _missing = None
+        if _missing:
+            return ModelSwitchResult(
+                success=False,
+                new_model=new_model,
+                target_provider=target_provider,
+                provider_label=provider_label,
+                is_global=is_global,
+                error_message=(
+                    f"MoA preset '{new_model}' needs a {_missing} API key "
+                    "(its reference/aggregator models are paid). Add a provider "
+                    "key or pick a free preset (free-chat/free-max)."
+                ),
+            )
+
     # --- Collect warnings ---
     warnings: list[str] = []
     if validation.get("message"):

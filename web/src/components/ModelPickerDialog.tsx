@@ -36,6 +36,8 @@ interface ModelOptionProvider {
   name: string;
   slug: string;
   models?: string[];
+  /** Models that exist but can't be selected without an API key (greyed out). */
+  unavailable_models?: string[];
   total_models?: number;
   is_current?: boolean;
   warning?: string;
@@ -521,6 +523,8 @@ function ModelColumn({
     );
   }
 
+  const unavailable = new Set(provider.unavailable_models ?? []);
+
   return (
     <div className="overflow-y-auto">
       {provider.warning && (
@@ -540,25 +544,46 @@ function ModelColumn({
           const active = m === selectedModel;
           const isCurrent =
             m === currentModel && provider.slug === currentProviderSlug;
+          const locked = unavailable.has(m);
 
           return (
             <ListItem
               key={m}
-              active={active}
-              onClick={() => onSelect(m)}
-              onDoubleClick={() => onConfirm(m)}
-              className="px-3 py-1.5 text-xs font-mono"
+              active={active && !locked}
+              onClick={() => {
+                if (!locked) onSelect(m);
+              }}
+              onDoubleClick={() => {
+                if (!locked) onConfirm(m);
+              }}
+              aria-disabled={locked}
+              title={locked ? "Needs a provider API key (paid models)" : undefined}
+              className={cn(
+                "px-3 py-1.5 text-xs font-mono",
+                locked && "cursor-not-allowed opacity-45",
+              )}
             >
               <Check
-                className={`h-3 w-3 shrink-0 ${active ? "text-primary" : "text-transparent"}`}
+                className={`h-3 w-3 shrink-0 ${active && !locked ? "text-primary" : "text-transparent"}`}
               />
               <span className="flex-1 truncate">
                 <HighlightedText text={m} positions={positions} />
               </span>
+              {locked && (
+                <span className="shrink-0 text-[0.62rem] uppercase tracking-wide text-muted-foreground">
+                  needs key
+                </span>
+              )}
               {isCurrent && <CurrentTag />}
             </ListItem>
           );
         })
+      )}
+      {unavailable.size > 0 && (
+        <div className="px-3 pb-2 pt-1 text-[0.62rem] leading-relaxed text-muted-foreground">
+          Greyed-out presets need a provider API key — add one or pick a free
+          preset (free-chat/free-max).
+        </div>
       )}
     </div>
   );

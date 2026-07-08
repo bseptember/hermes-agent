@@ -4572,6 +4572,28 @@ def _apply_model_assignment_sync(
         if not provider or not model:
             raise HTTPException(status_code=400, detail="provider and model required for main")
         provider, model = _normalize_main_model_assignment(provider, model)
+        # MoA gate: a BYOK preset (paid reference/aggregator models) can't be
+        # selected without a usable key for its provider. Mirrors the picker
+        # grey-out so surfaces that ignore ``unavailable_models`` still refuse.
+        if provider.strip().lower() == "moa":
+            try:
+                from hermes_cli.model_access_policy import moa_preset_missing_key
+                from hermes_cli.moa_config import normalize_moa_config
+
+                moa_cfg = normalize_moa_config(cfg.get("moa") or {})
+                preset_cfg = moa_cfg.get("presets", {}).get(model)
+                missing = moa_preset_missing_key(preset_cfg) if preset_cfg else None
+            except Exception:
+                missing = None
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"MoA preset '{model}' needs a {missing} API key "
+                        "(its reference/aggregator models are paid). Add a "
+                        "provider key or pick a free preset (free-chat/free-max)."
+                    ),
+                )
         # Policy gate: if a provider key is absent, only free models are allowed.
         try:
             from hermes_cli.auth import (

@@ -356,11 +356,15 @@ export function ModelPicker({ allowPersistGlobal = true, gw, onCancel, onSelect,
       }
 
       const model = models[modelIdx]
+      const modelLocked = !!model && (provider?.unavailable_models ?? []).includes(model)
 
-      if (provider && model) {
+      if (provider && model && !modelLocked) {
         onSelect(
           `${model} --provider ${provider.slug}${allowPersistGlobal && persistGlobal ? ' --global' : ` ${TUI_SESSION_MODEL_FLAG}`}`
         )
+      } else if (modelLocked) {
+        // Paid preset without a key — refuse and keep the picker open.
+        setKeyError('')
       } else {
         setStage('provider')
       }
@@ -607,6 +611,7 @@ export function ModelPicker({ allowPersistGlobal = true, gw, onCancel, onSelect,
   // ── Model selection stage ────────────────────────────────────────────
   const { items, offset } = windowItems(models, modelIdx, VISIBLE)
   const noModelMatches = !!filter.trim() && models.length === 0
+  const unavailableModels = new Set(provider?.unavailable_models ?? [])
 
   return (
     <Box flexDirection="column" width={width}>
@@ -643,18 +648,21 @@ export function ModelPicker({ allowPersistGlobal = true, gw, onCancel, onSelect,
           )
         }
 
+        const locked = unavailableModels.has(row)
         const prefix = modelIdx === idx ? '▸ ' : row === currentModel ? '* ' : '  '
+        const label = locked ? `${row} (needs key)` : row
 
         return (
           <Text
             bold={modelIdx === idx}
-            color={modelIdx === idx ? t.color.accent : t.color.muted}
+            color={modelIdx === idx ? t.color.accent : locked ? t.color.label : t.color.muted}
+            dimColor={locked && modelIdx !== idx}
             inverse={modelIdx === idx}
             key={`${provider?.slug ?? 'prov'}:${idx}:${row}`}
             wrap="truncate-end"
           >
             {prefix}
-            {idx + 1}. {row}
+            {idx + 1}. {label}
           </Text>
         )
       })}

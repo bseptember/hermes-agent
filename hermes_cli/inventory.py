@@ -494,12 +494,18 @@ def _moa_provider_row(current_provider: str = "") -> dict | None:
         models = list(cfg.get("presets", {}).keys())
         if not models:
             return None
+        # Grey out BYOK presets whose paid provider has no usable key. Fails
+        # open (empty list) so a preset is never hidden by mistake.
+        from hermes_cli.model_access_policy import unavailable_moa_presets
+
+        unavailable = unavailable_moa_presets(cfg)
         return {
             "slug": "moa",
             "name": "Mixture of Agents",
             "is_current": (current_provider or "").lower() == "moa",
             "is_user_defined": False,
             "models": models,
+            "unavailable_models": unavailable,
             "total_models": len(models),
             "source": "virtual",
             "authenticated": True,
