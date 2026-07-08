@@ -897,7 +897,7 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
     # Strip image parts for non-vision models (no-op when vision-capable).
     _msgs_for_chat = agent._prepare_messages_for_non_vision_model(api_messages)
 
-    return _ct.build_kwargs(
+    _legacy_kwargs = _ct.build_kwargs(
         model=agent.model,
         messages=_msgs_for_chat,
         tools=tools_for_api,
@@ -933,6 +933,20 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
         anthropic_max_output=_ant_max,
         provider_name=agent.provider,
     )
+    # MoA virtual provider: hand the live Hermes session_id to the in-process
+    # MoAChatCompletions facade via a Hermes-internal api_kwargs key. The facade
+    # (agent/moa_loop.py) pops it and pins the turn's reference fan-out and
+    # aggregator calls to it for OpenRouter sticky routing (prompt-cache hits);
+    # it is NEVER forwarded to a real provider SDK. Gated on the `moa` provider
+    # so no real chat-completions request ever carries this non-standard key.
+    # session_id is unset until agent_init assigns it (after client construction),
+    # so this per-turn injection — not construction-time capture — is what makes
+    # the id reliably present.
+    if agent.provider == "moa":
+        _sid = getattr(agent, "session_id", None)
+        if _sid:
+            _legacy_kwargs["session_id"] = _sid
+    return _legacy_kwargs
 
 
 
