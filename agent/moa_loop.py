@@ -223,6 +223,7 @@ def _run_reference(
     *,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    session_id: str | None = None,
 ) -> tuple[str, str, Any]:
     """Call one reference model and return ``(label, text, usage)``.
 
@@ -270,11 +271,19 @@ def _run_reference(
         # (their caching is automatic; markers are ignored harmlessly, but we
         # only decorate when the policy says the route honors them).
         messages = _maybe_apply_moa_cache_control(messages, runtime)
+        # Pin this advisor call to the turn's session_id so OpenRouter's
+        # sticky routing keeps repeated fan-outs on the same backend instance
+        # (automatic prompt-cache hits for DeepSeek/Gemini/OpenAI-family
+        # advisors). call_llm only forwards it when the resolved provider's
+        # profile emits session_id, so non-OpenRouter advisors are unaffected.
+        # This is the sticky-routing complement to the explicit cache_control
+        # markers _maybe_apply_moa_cache_control adds for Anthropic-style routes.
         response = call_llm(
             task="moa_reference",
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            session_id=session_id,
             **runtime,
         )
         usage = CanonicalUsage()
@@ -339,6 +348,7 @@ def _run_references_parallel(
     *,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    session_id: str | None = None,
 ) -> list[tuple[str, str, Any]]:
     """Fan out all reference models in parallel, returning outputs in order.
 
@@ -375,6 +385,7 @@ def _run_references_parallel(
                     ref_messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    session_id=session_id,
                 )
             ] = idx
         # Collect every reference before returning — the aggregator needs the
@@ -577,6 +588,7 @@ def aggregate_moa_context(
     temperature: float | None = None,
     aggregator_temperature: float | None = None,
     max_tokens: int | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Run configured reference models and synthesize their advice.
 
@@ -601,6 +613,7 @@ def aggregate_moa_context(
         ref_messages,
         temperature=temperature,
         max_tokens=max_tokens,
+        session_id=session_id,
     )
 
     joined = "\n\n".join(
@@ -638,6 +651,7 @@ def aggregate_moa_context(
             messages=agg_messages,
             temperature=aggregator_temperature,
             max_tokens=max_tokens,
+            session_id=session_id,
             **agg_runtime,
         )
         synthesis = _extract_text(response)
@@ -801,6 +815,15 @@ class MoAChatCompletions:
         from hermes_cli.config import load_config
         from hermes_cli.moa_config import resolve_moa_preset
 
+        # Hermes-internal key: the live session_id, injected by build_api_kwargs
+        # for the virtual `moa` provider. Consumed here to pin OpenRouter sticky
+        # routing (prompt-cache hits) across this turn's reference fan-out and
+        # aggregator calls, then stripped — it is NOT a real chat-completions
+        # field and must never reach a provider SDK. The reference and aggregator
+        # calls receive it explicitly (via call_llm's session_id parameter), not
+        # through the forwarded api_kwargs, so all calls in one turn share the
+        # same id and land on the same backend/cache.
+        session_id = api_kwargs.pop("session_id", None)
         preset = resolve_moa_preset(load_config().get("moa") or {}, self.preset_name)
         messages = list(api_kwargs.get("messages") or [])
         reference_models = preset.get("reference_models") or []
@@ -902,6 +925,7 @@ class MoAChatCompletions:
                 ref_messages,
                 temperature=temperature,
                 max_tokens=reference_max_tokens,
+                session_id=session_id,
             )
             self._ref_cache_key = _cache_key
             self._ref_cache_outputs = list(reference_outputs)
@@ -1017,6 +1041,7 @@ class MoAChatCompletions:
             max_tokens=agg_kwargs.get("max_tokens"),
             tools=agg_kwargs.get("tools"),
             extra_body=agg_kwargs.get("extra_body"),
+            session_id=session_id,
             **stream_kwargs,
             **_slot_runtime(aggregator),
         )

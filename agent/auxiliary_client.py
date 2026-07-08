@@ -5944,6 +5944,7 @@ def call_llm(
     api_mode: str = None,
     stream: bool = False,
     stream_options: dict = None,
+    session_id: str = None,
 ) -> Any:
     """Centralized synchronous LLM call.
 
@@ -5970,6 +5971,16 @@ def call_llm(
             output can stream to the user.
         stream_options: Passed through to the request when stream is True
             (e.g. {"include_usage": True}).
+        session_id: Stable per-session identifier for provider sticky routing.
+            When set AND the resolved provider's profile emits it (currently
+            only OpenRouter's ``build_extra_body``), it is added to the outgoing
+            ``extra_body`` as ``session_id`` so repeated calls land on the same
+            backend instance and can build an automatic prompt-cache hit
+            (DeepSeek/Gemini/OpenAI-family, etc.). Default ``None`` — omitting it
+            is a no-op, so every existing caller is unaffected. This is the same
+            mechanism the non-MoA acting path uses via the OpenRouter profile;
+            it exists here so MoA reference/aggregator calls (which route through
+            ``call_llm`` rather than the profile transport) get the same pinning.
 
     Returns:
         Response object with .choices[0].message.content, OR — when stream=True —
@@ -6060,6 +6071,27 @@ def call_llm(
         logger.info("Auxiliary %s: using %s (%s)%s",
                      task, resolved_provider or "auto", final_model or "default",
                      f" at {_base_info}" if _base_info and "openrouter" not in _base_info else "")
+
+    # Provider sticky-routing: fold session_id into extra_body when the
+    # resolved provider's profile actually emits it. We delegate the
+    # "does this provider support session_id?" decision to the SAME
+    # profile.build_extra_body() the non-MoA acting path uses, so only routes
+    # that understand it (OpenRouter) receive it and every other provider is
+    # untouched (the base profile returns {} and drops it). Merged with
+    # setdefault so an explicit caller-supplied session_id in extra_body wins.
+    # Resolved AFTER any provider/fallback reassignment above so the id pins to
+    # the route we actually call.
+    if session_id:
+        try:
+            from providers import get_provider_profile as _gpf_session
+            _profile = _gpf_session(resolved_provider)
+            if _profile is not None:
+                _prof_body = _profile.build_extra_body(session_id=session_id)
+                _sid = _prof_body.get("session_id") if isinstance(_prof_body, dict) else None
+                if _sid:
+                    effective_extra_body.setdefault("session_id", _sid)
+        except Exception as _sid_exc:  # pragma: no cover - defensive, must never break a call
+            logger.debug("session_id extra_body injection skipped: %s", _sid_exc)
 
     # Pass the client's actual base_url (not just resolved_base_url) so
     # endpoint-specific temperature overrides can distinguish
