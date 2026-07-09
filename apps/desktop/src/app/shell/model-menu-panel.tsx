@@ -112,6 +112,10 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
     () => providers?.find(provider => provider.slug.toLowerCase() === 'moa')?.models ?? [],
     [providers]
   )
+  const moaLabels = useMemo(
+    () => providers?.find(provider => provider.slug.toLowerCase() === 'moa')?.model_labels ?? {},
+    [providers]
+  )
 
   const pickerProviders = useMemo(
     () => providers?.filter(provider => provider.slug.toLowerCase() !== 'moa') ?? [],
@@ -345,7 +349,9 @@ export function ModelMenuPanel({ gateway, onSelectModel, requestGateway }: Model
                   void selectMoaPreset(preset)
                 }}
               >
-                <span className="min-w-0 flex-1 truncate">MoA: {preset}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {moaLabels[preset] ?? preset}
+                </span>
                 {isCurrentMoa ? <Codicon className="ml-auto text-foreground" name="check" size="0.75rem" /> : null}
               </DropdownMenuItem>
             )

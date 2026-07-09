@@ -145,6 +145,16 @@ def _normalize_preset(raw: Any) -> dict[str, Any]:
         # aggregator gets their upfront plan-level advice, then acts alone
         # for the rest of the tool loop.
         "fanout": _coerce_fanout(raw.get("fanout")),
+        **(
+            {"description": str(raw.get("description") or "").strip()}
+            if str(raw.get("description") or "").strip()
+            else {}
+        ),
+        **(
+            {"picker_label": str(raw.get("picker_label") or "").strip()}
+            if str(raw.get("picker_label") or "").strip()
+            else {}
+        ),
     }
 
 

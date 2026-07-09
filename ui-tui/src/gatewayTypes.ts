@@ -475,6 +475,8 @@ export interface ModelOptionProvider {
   is_current?: boolean
   key_env?: string
   models?: string[]
+  /** Human labels for MoA preset slugs (slug -> picker_label). */
+  model_labels?: Record<string, string>
   /** Models present but not selectable without an API key (greyed out). */
   unavailable_models?: string[]
   name: string

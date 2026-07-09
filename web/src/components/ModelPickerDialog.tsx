@@ -36,6 +36,8 @@ interface ModelOptionProvider {
   name: string;
   slug: string;
   models?: string[];
+  /** Human labels for MoA preset slugs (slug -> picker_label). */
+  model_labels?: Record<string, string>;
   /** Models that exist but can't be selected without an API key (greyed out). */
   unavailable_models?: string[];
   total_models?: number;
@@ -545,6 +547,9 @@ function ModelColumn({
           const isCurrent =
             m === currentModel && provider.slug === currentProviderSlug;
           const locked = unavailable.has(m);
+          const display =
+            provider.model_labels?.[m] ??
+            (provider.slug === "moa" ? m : m);
 
           return (
             <ListItem
@@ -557,7 +562,13 @@ function ModelColumn({
                 if (!locked) onConfirm(m);
               }}
               aria-disabled={locked}
-              title={locked ? "Needs a provider API key (paid models)" : undefined}
+              title={
+                locked
+                  ? "Needs a provider API key (paid models)"
+                  : provider.slug === "moa" && display !== m
+                    ? m
+                    : undefined
+              }
               className={cn(
                 "px-3 py-1.5 text-xs font-mono",
                 locked && "cursor-not-allowed opacity-45",
@@ -567,7 +578,7 @@ function ModelColumn({
                 className={`h-3 w-3 shrink-0 ${active && !locked ? "text-primary" : "text-transparent"}`}
               />
               <span className="flex-1 truncate">
-                <HighlightedText text={m} positions={positions} />
+                <HighlightedText text={display} positions={positions} />
               </span>
               {locked && (
                 <span className="shrink-0 text-[0.62rem] uppercase tracking-wide text-muted-foreground">
@@ -582,7 +593,7 @@ function ModelColumn({
       {unavailable.size > 0 && (
         <div className="px-3 pb-2 pt-1 text-[0.62rem] leading-relaxed text-muted-foreground">
           Greyed-out presets need a provider API key — add one or pick a free
-          preset (free-chat/free-max).
+          preset (Quick chat / Deep reasoning / Architecture & design).
         </div>
       )}
     </div>

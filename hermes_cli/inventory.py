@@ -479,6 +479,20 @@ def _apply_api_key_free_gate(rows: list[dict]) -> None:
             row["unavailable_models"] = sorted(unavailable)
 
 
+def _moa_preset_labels(presets: dict[str, Any]) -> dict[str, str]:
+    """Map preset slug -> human picker label from config metadata."""
+    labels: dict[str, str] = {}
+    for slug, preset in presets.items():
+        if not isinstance(preset, dict):
+            labels[str(slug)] = str(slug)
+            continue
+        label = str(preset.get("picker_label") or "").strip()
+        if not label:
+            label = str(preset.get("description") or "").strip()
+        labels[str(slug)] = label or str(slug)
+    return labels
+
+
 def _moa_provider_row(current_provider: str = "") -> dict | None:
     """Build the virtual ``moa`` provider row for model pickers.
 
@@ -491,7 +505,8 @@ def _moa_provider_row(current_provider: str = "") -> dict | None:
         from hermes_cli.moa_config import normalize_moa_config
 
         cfg = normalize_moa_config(load_config().get("moa") or {})
-        models = list(cfg.get("presets", {}).keys())
+        presets = cfg.get("presets", {})
+        models = list(presets.keys())
         if not models:
             return None
         # Grey out BYOK presets whose paid provider has no usable key. Fails
@@ -505,6 +520,7 @@ def _moa_provider_row(current_provider: str = "") -> dict | None:
             "is_current": (current_provider or "").lower() == "moa",
             "is_user_defined": False,
             "models": models,
+            "model_labels": _moa_preset_labels(presets),
             "unavailable_models": unavailable,
             "total_models": len(models),
             "source": "virtual",

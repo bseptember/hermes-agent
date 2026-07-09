@@ -64,7 +64,13 @@ def test_moa_picker_row_greys_out_byok_without_key(monkeypatch):
         lambda *a, **k: {
             "moa": {
                 "default_preset": "free-max",
-                "presets": {"free-max": FREE_PRESET, "byok-code": BYOK_PRESET},
+                "presets": {
+                    "free-max": {
+                        **FREE_PRESET,
+                        "picker_label": "Deep reasoning ($0)",
+                    },
+                    "byok-code": BYOK_PRESET,
+                },
             }
         },
     )
@@ -73,3 +79,5 @@ def test_moa_picker_row_greys_out_byok_without_key(monkeypatch):
     assert row is not None
     assert set(row["models"]) == {"free-max", "byok-code"}
     assert row["unavailable_models"] == ["byok-code"]
+    assert row["model_labels"]["free-max"] == "Deep reasoning ($0)"
+    assert row["model_labels"]["byok-code"] == "byok-code"

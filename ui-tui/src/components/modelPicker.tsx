@@ -650,7 +650,8 @@ export function ModelPicker({ allowPersistGlobal = true, gw, onCancel, onSelect,
 
         const locked = unavailableModels.has(row)
         const prefix = modelIdx === idx ? '▸ ' : row === currentModel ? '* ' : '  '
-        const label = locked ? `${row} (needs key)` : row
+        const display = provider?.model_labels?.[row] ?? row
+        const label = locked ? `${display} (needs key)` : display
 
         return (
           <Text

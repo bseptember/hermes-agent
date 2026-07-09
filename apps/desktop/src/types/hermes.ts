@@ -270,6 +270,8 @@ export interface ModelOptionProvider {
   free_tier?: boolean
   /** Nous only: paid models a free-tier user cannot select (shown disabled). */
   unavailable_models?: string[]
+  /** Human labels for MoA preset slugs (slug -> picker_label). */
+  model_labels?: Record<string, string>
   /** Per-model option support, keyed by model id (present when the picker
    *  requested capabilities). Lets the UI gate fast/reasoning controls. */
   capabilities?: Record<string, ModelCapabilities>
