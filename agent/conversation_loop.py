@@ -5182,6 +5182,7 @@ def run_conversation(
                     from agent.verification_stop import (
                         build_verify_on_stop_nudge,
                         verify_on_stop_enabled,
+                        verify_on_stop_max_attempts,
                     )
 
                     if verify_on_stop_enabled():
@@ -5189,6 +5190,7 @@ def run_conversation(
                             session_id=getattr(agent, "session_id", None),
                             changed_paths=getattr(agent, "_turn_file_mutation_paths", set()),
                             attempts=getattr(agent, "_verification_stop_nudges", 0),
+                            max_attempts=verify_on_stop_max_attempts(),
                         )
                     else:
                         _verify_nudge = None
