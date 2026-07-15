@@ -1,3 +1,3 @@
 ---
-description: Skills for setting up, configuring, and managing game servers, modpacks, and gaming-related infrastructure.
+description: Skills for building browser games and managing game servers, modpacks, and gaming-related infrastructure.
 ---
