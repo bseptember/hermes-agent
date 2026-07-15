@@ -242,14 +242,32 @@ def _status_detail(status: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def verify_on_stop_max_attempts(config: dict | None = None) -> int:
+    """How many missing-evidence stop nudges before allowing a dirty finish."""
+    try:
+        from hermes_cli.config import load_config
+
+        cfg = config if isinstance(config, dict) else load_config()
+    except Exception:
+        cfg = config if isinstance(config, dict) else {}
+    agent_cfg = (cfg or {}).get("agent") if isinstance(cfg, dict) else None
+    raw = agent_cfg.get("verify_on_stop_max_attempts") if isinstance(agent_cfg, dict) else None
+    try:
+        return max(1, min(12, int(raw)))
+    except (TypeError, ValueError):
+        return 5
+
+
 def build_verify_on_stop_nudge(
     *,
     session_id: str | None,
     changed_paths: Iterable[str],
     attempts: int = 0,
-    max_attempts: int = 2,
+    max_attempts: int | None = None,
 ) -> str | None:
     """Return a synthetic follow-up when edited code lacks fresh verification."""
+    if max_attempts is None:
+        max_attempts = verify_on_stop_max_attempts()
     # Drop documentation/prose paths (markdown, skills, README, LICENSE, ...) —
     # they carry no verifiable behavior, so a turn that touched only those has
     # nothing to verify and must not nudge.
@@ -310,4 +328,8 @@ def build_verify_on_stop_nudge(
     )
 
 
-__all__ = ["build_verify_on_stop_nudge", "verify_on_stop_enabled"]
+__all__ = [
+    "build_verify_on_stop_nudge",
+    "verify_on_stop_enabled",
+    "verify_on_stop_max_attempts",
+]
