@@ -6,6 +6,7 @@ import agent.retry_utils as retry_utils
 from types import SimpleNamespace
 
 from agent.retry_utils import adaptive_rate_limit_backoff, is_zai_coding_overload_error, jittered_backoff
+from agent.retry_utils import model_cooldown_remaining, register_model_cooldown
 
 
 def test_backoff_is_exponential():
@@ -258,3 +259,62 @@ def test_zai_overload_ceiling_makes_long_tier_reachable(monkeypatch):
 
     assert long_waits, "long-backoff tier never reached within the retry ceiling"
     assert long_waits == [30.0, 60.0, 90.0, 120.0]
+
+
+def test_model_cooldown_register_and_expire(monkeypatch):
+    now = 1000.0
+    monkeypatch.setattr(retry_utils.time, "time", lambda: now)
+    retry_utils._model_cooldowns.clear()
+
+    remaining = register_model_cooldown(
+        provider="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        model="qwen/qwen3-coder:free",
+        cooldown_seconds=30,
+    )
+    assert remaining == 30.0
+    assert model_cooldown_remaining(
+        provider="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        model="qwen/qwen3-coder:free",
+    ) == 30.0
+
+    now = 1031.0
+    assert (
+        model_cooldown_remaining(
+            provider="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            model="qwen/qwen3-coder:free",
+        )
+        == 0.0
+    )
+
+
+def test_model_cooldown_only_extends(monkeypatch):
+    now = 2000.0
+    monkeypatch.setattr(retry_utils.time, "time", lambda: now)
+    retry_utils._model_cooldowns.clear()
+
+    register_model_cooldown(
+        provider="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        cooldown_seconds=40,
+    )
+    # Shorter cooldown should not reduce existing entry.
+    remaining = register_model_cooldown(
+        provider="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        cooldown_seconds=10,
+    )
+    assert remaining == 40.0
+
+    # Longer cooldown should extend.
+    remaining = register_model_cooldown(
+        provider="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        cooldown_seconds=70,
+    )
+    assert remaining == 70.0
